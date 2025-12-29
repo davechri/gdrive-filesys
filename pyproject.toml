@@ -7,7 +7,7 @@ dependencies = {file = ["requirements.txt"]}
 
 [project]
 name = "gdrive-filesys"
-version = "0.0.1"
+version = "0.0.2"
 license = { text = "MIT" }
 dynamic = ["dependencies"]
 authors = [
