@@ -13,7 +13,7 @@ class Config:
         configPath = os.path.join(common.dataDir, 'config.toml')
         if not os.path.exists(configPath): 
             self.localonlyDir = os.path.join(Path.home(), '.gdrive-filesys', 'config.toml')
-            defaultConfigPath = Path(__file__).resolve().parent / "../default_config.toml"
+            defaultConfigPath = Path(__file__).resolve().parent / "default_config.toml"
             shutil.copy(defaultConfigPath, configPath)
             
         with open(configPath, 'rb') as f:
