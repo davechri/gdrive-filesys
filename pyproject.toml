@@ -2,12 +2,15 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.package-data]
+"gdrive_filesys" = ["*.toml"]
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
 
 [project]
 name = "gdrive-filesys"
-version = "0.0.4"
+version = "0.0.5"
 license = { text = "MIT" }
 dynamic = ["dependencies"]
 authors = [

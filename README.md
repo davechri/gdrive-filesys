@@ -47,7 +47,20 @@ other Google Drive clients:
   not uploaded to Google Drive.  This means that Python virtual environment packages in `.venv`
   and nodejs packages in `node_modules` are only installed locally.  
   
- **Local Only directories.** Directories can be configued to only store files locally in your native filesystem to improve small file performance.  The `config.toml` file is used to configure local only directories.  The`node_modules` directory is configured as a local only directory so node packages are stored locally in your native filesystem, and `npm install` will run very fast.
+ **Local Only directories.** Directories can be configued to only store files locally in your native filesystem to improve small file performance.  The `~/.gdrive-filesys/config.toml` file is used to configure local only directories.  The`node_modules` directory is configured as a local only directory so node packages are stored locally in your native filesystem, and `npm install` will run very fast.
+
+ This is the default `config.toml' file:
+ ```json
+### This is the configuration file.
+### It should be placed in $HOME/.gdrive-filesys/config.toml
+
+# Directory names that are only created localy and not synced to Google Drive.
+# Files in local only directories are stored in the native filessystem for fast
+# updates.  Install directories are good candidates to be stored locally.
+local_only = [
+    "node_modules",    
+]
+ ```
  
 ## Quick start
 
