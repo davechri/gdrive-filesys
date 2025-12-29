@@ -19,8 +19,7 @@ class Config:
             with open(configPath, 'rb') as f:
                 config = tomllib.load(f)
                 logger.debug(f'config: {config}')
-                self.localOnlyDirs = config['local_only']
-            raise Exception('testing exception handling')
+                self.localOnlyDirs = config['local_only']            
         except Exception as e:
             self.localOnlyDirs = ['node_modules',]
             raisedBy = log.exceptionRaisedBy(e)  
