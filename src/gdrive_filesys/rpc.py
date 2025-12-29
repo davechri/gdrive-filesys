@@ -13,6 +13,7 @@ from datetime import datetime
 from gdrive_filesys import common, download, eventq, filesystem, metrics, attr, directories, upload, refresh
 from gdrive_filesys.cache import db, mem
 from gdrive_filesys.log import logger
+from gdrive_filesys import log
 from gdrive_filesys import gddelete
 from gdrive_filesys.cache import metadata, data
 from gdrive_filesys.localonly import localonly
@@ -22,6 +23,7 @@ class RpcServer:
         self.server: SimpleXMLRPCServer | None = None
 
     def start(self):
+        logger.info('Starting RPC server thread')
         threading.Thread(target=self.rpcServerThread, daemon=True).start() 
 
     def stop(self):
@@ -31,13 +33,19 @@ class RpcServer:
         common.threadLocal.operation = 'rpcserver'
         common.threadLocal.path = None
         metrics.counts.incr('rpcserver_thread_started')
-        self.server = SimpleXMLRPCServer(("localhost", common.RPC_SERVER_PORT), allow_none=True)
-        self.server.register_function(self.eventqueue, "eventqueue")
-        self.server.register_function(self.metadata, 'metadata')
-        self.server.register_function(self.directories, 'directories')
-        self.server.register_function(self.unread, "unread")
-        self.server.register_function(self.status, "status")
-        self.server.serve_forever()
+        try:
+            logger.info(f'RPC.rpcServerThread starting on port {common.RPC_SERVER_PORT}')
+            self.server = SimpleXMLRPCServer(("localhost", common.RPC_SERVER_PORT), allow_none=True)
+            self.server.register_function(self.eventqueue, "eventqueue")
+            self.server.register_function(self.metadata, 'metadata')
+            self.server.register_function(self.directories, 'directories')
+            self.server.register_function(self.unread, "unread")
+            self.server.register_function(self.status, "status")
+            self.server.serve_forever()
+        except Exception as e:
+            raisedBy = log.exceptionRaisedBy(e)
+            logger.exception(f'RPC.rpcServerThread exception: {raisedBy}')
+            metrics.counts.incr('rpcserver_thread_exception')
 
     def status(self) -> str:
         common.threadLocal.path = None
