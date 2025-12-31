@@ -1,7 +1,8 @@
 
 import threading
+import time
 
-from gdrive_filesys import common, directories, eventq, gddelete, log, metrics 
+from gdrive_filesys import common, directories, eventq, gdcreate, gddelete, log, metrics 
 from gdrive_filesys.api import api
 from gdrive_filesys.cache import refreshcache
 from gdrive_filesys.log import logger
@@ -29,6 +30,7 @@ class Refresh:
         metrics.counts.incr('refresh_thread_started')
         self.event = threading.Event()
 
+        lastRefreshTime = 0
         while True:
             try:
                 metrics.counts.incr('refresh_wait')                
@@ -36,18 +38,25 @@ class Refresh:
                 metrics.counts.incr('refresh_start')
                 metrics.counts.startExecution('refresh')
 
-                eventq.queue.executeEvents()
+                eventq.queue.executeEvents() # Execute any pending events first
+                 
+                # Update cached data at least every common.updateinterval seconds
+                elapsed = time.time() - lastRefreshTime
+                if elapsed > common.updateinterval:  
+                    metrics.counts.incr('refresh', int(elapsed))
+                                            
+                    lastRefreshTime =  time.time() + common.updateinterval
                 
-                if gddelete.manager.activeThreadCount > 0 or gddelete.manager.queue.qsize() > 0:
-                    metrics.counts.incr('refresh_delay_for_gddelete')
-                    logger.debug('refresh: delaying refresh due to active gddelete operations')
-                else:
-                    logger.info('--> refresh: refreshing all files and directories')                
-                    self.refreshRunning = True
-                    directories.store.populate()              
-                    refreshcache.refreshAll() # Refresh all files                
-                    metrics.counts.incr('refresh_complete')
-                    logger.info('<-- refresh: refresh complete')
+                    if gddelete.manager.activeThreadCount > 0 or gddelete.manager.queue.qsize() > 0 or gdcreate.manager.activeThreadCount > 0 or gdcreate.manager.queue.qsize() > 0:
+                        metrics.counts.incr('refresh_delay_for_gddelete')
+                        logger.debug('refresh: delaying refresh due to active gddelete operations')
+                    else:
+                        logger.info('--> refresh: refreshing all files and directories')                
+                        self.refreshRunning = True
+                        directories.store.populate()              
+                        refreshcache.refreshAll() # Refresh all files                
+                        metrics.counts.incr('refresh_complete')
+                        logger.info('<-- refresh: refresh complete')
             except Exception as e:
                 if isinstance(e, HttpError):
                     logger.error(f"refresh HttpError in refreshThread: {e}")

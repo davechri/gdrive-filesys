@@ -5,7 +5,7 @@ import traceback
 
 from googleapiclient.errors import HttpError
 
-from gdrive_filesys import common, metrics, upload
+from gdrive_filesys import common, gdcreate, metrics, gdupload
 from gdrive_filesys.cache import db, metadata
 from gdrive_filesys.api import create, remove, chmod, mkdir, symlink, truncate, rmdir, rename
 from gdrive_filesys.log import logger
@@ -30,12 +30,17 @@ class Key:
         self.seqNum = seqNum
 
 class Value:
-    def __init__(self, path: str, path2: str|None, localId: str, gdId: str|None, failedCount: int):
+    def __init__(self, path: str, path2: str|None, localId: str, gdId: str|None, failedCount: int, retryCount: int):
         self.path = path
         self.path2 = path2
         self.localId = localId
         self.gdId = gdId
         self.failedCount = failedCount
+        self.retryCount = retryCount
+
+class RetryException(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
 
 class EventQueue:
     def init(self):
@@ -101,7 +106,8 @@ class EventQueue:
         localId = data.get('local_id')
         gdId = data.get('gd_id')
         failedCount = data.get('failed_count', 0)
-        return Value(path, path2, localId, gdId, failedCount)
+        retryCount = data.get('retry_count', 0)
+        return Value(path, path2, localId, gdId, failedCount, retryCount)
 
     def executeEvents(self) -> None:
         metrics.counts.incr('execute_events')
@@ -123,7 +129,8 @@ class EventQueue:
                 path2 = data.get('path2')
                 localId = data.get('local_id')
                 gdId = data.get('gd_id')
-                failedCount = data.get('failed_count', 0)                
+                failedCount = data.get('failed_count', 0)  
+                retryCount = data.get('retry_count', 0)              
                 exception = None
                 try:                   
                     common.threadLocal.path = (path,)                    
@@ -151,21 +158,23 @@ class EventQueue:
                         self.executeTruncateEvent(path, localId, gdId, seqNum, fromOperation)   
                     else:
                         logger.error(f'executeEvents: unknown event {event} for path={path} local_id={localId} gd_id={gdId} seqNum={seqNum}')
-                except Exception as e:
-                    stack = traceback.print_tb(e.__traceback__)
-                    raisedBy = log.exceptionRaisedBy(e)                    
-                    logger.exception(f'executeEvents exception: event={event} path={path} local_id={localId} gd_id={gdId} seqNum={seqNum} {raisedBy} {stack}')                    
-                    metrics.counts.incr('eventqueue_exception')
+                except Exception as e:                    
+                    raisedBy = log.exceptionRaisedBy(e) 
+                    if isinstance(e, RetryException):
+                        logger.warning(f'executeEvents retry exception: event={event} path={path} path2={path2} local_id={localId} gd_id={gdId} seqNum={seqNum} {raisedBy}')    
+                        metrics.counts.incr('eventqueue_retry_exception')                
+                    else:                   
+                        logger.exception(f'executeEvents exception: event={event} path={path} local_id={localId} gd_id={gdId} seqNum={seqNum} {raisedBy}')
+                        metrics.counts.incr('eventqueue_exception')
+
                     if isinstance(e, HttpError):
                         metrics.counts.incr('eventqueue_http_'+str(e.resp.status))
                         if e.resp.status == 404:
                             logger.error(f'HttpError 404 - dropping event: event={event} path={path} local_id={localId} gd_id={gdId} seqNum={seqNum}')
                         else:
-                            exception = e
-                            raise e
+                            exception = e                            
                     else:
-                        exception = e
-                        raise e
+                        exception = e                        
                 finally:
                     if exception == None:
                         db.cache.delete(self.key(event, fromOperation, int(seqNum)), EVENT_PREFIX) 
@@ -173,11 +182,17 @@ class EventQueue:
                         eventCount -= 1
                     else:
                         metrics.counts.incr('eventqueue_requeue_event')
+                        if isinstance(exception, RetryException):
+                            retryCount += 1
+                        else:
+                            failedCount += 1
                         data = {
                             'path': path,
+                            'path2': path2,
                             'local_id': localId,
                             'gd_id': gdId,
-                            'failed_count': failedCount+1
+                            'failed_count': failedCount,
+                            'retry_count': retryCount
                         }
                         db.cache.put(self.key(event, fromOperation, int(seqNum)), bytes(json.dumps(data), 'utf-8'), EVENT_PREFIX)                               
         except Exception as e:
@@ -226,15 +241,13 @@ class EventQueue:
                 logger.info(f'execute: path={path} is gitignored, not creating on Google Drive')
                 metadata.cache.changeToLocalOnly(path, localId, st)
             elif st.gd_id == None:
-                logger.info(f'create --> {path} local_id={localId}')
-                metrics.counts.incr('execute_create_file')
-                gdId = create.execute(path, st.st_mode, localId, runAsync=False)
-                logger.info(f'create <-- {path} local_id={localId} gd_id={gdId}')
+                gdcreate.manager.enqueue(path, localId)  
+                return              
             else:
                 logger.info(f'file has google drive id - noop: {path} local_id={localId} gd_id={st.gd_id}')
             logger.info(f'flush --> {path} local_id={localId} gd_id={st.gd_id}')
             metrics.counts.incr('execute_flush')
-            size = upload.manager.flush(path)
+            size = gdupload.manager.flush(path)
             logger.info(f'flush <-- {path} local_id={localId} gd_id={st.gd_id} size={size}')
         else:
             if gdId == None:
@@ -255,29 +268,28 @@ class EventQueue:
             if st.local_only:
                 logger.warning(f'execute: newPath={newPath} is local only, not creating on Google Drive')               
             elif st.gd_id == None:
+                if gdcreate.manager.pendingCreates.get(localId) != None:                    
+                    raise RetryException(f'executeRenameEvent: create pending for local_id={localId}, retrying later')                
+                    
                 logger.info(f'execute: create non-existing file with new path {newPath} local_id={localId} gd_id={gdId}')
                 if st.st_mode & stat.S_IFDIR:
                     self.executeDirEvent(newPath, localId, gdId, seqNum, fromOperation)
-                else:
+                elif st.st_mode & stat.S_IFREG == stat.S_IFREG:
                     self.executeFileEvent(newPath, localId, gdId, seqNum, fromOperation)
+                elif st.st_mode & stat.S_IFLNK == stat.S_IFLNK:
+                    self.executeSymlinkEvent(newPath, localId, gdId, seqNum, fromOperation)
             else:
                 if newPath != st.getPath():
                     logger.error(f'executeRenameEvent: newPath {newPath} does not match st.getPath() {st.getPath()} for local_id={localId} gd_id={gdId}')
                     return
-                logger.info(f'rename --> old={oldPath} new={newPath} local_id={localId}  gd_id={gdId}')
+                logger.info(f'rename --> old={oldPath} new={newPath} local_id={localId}  gd_id={st.gd_id}')
                 metrics.counts.incr('execute_rename')
                 rename.gdRename(oldPath, newPath, st)    
-                logger.info(f'rename <-- old={oldPath} new={newPath} local_id={localId}  gd_id={gdId}')        
-        else:
-            if gdId == None:
-                metrics.counts.incr('execute_rename_was_deleted')
-                logger.info(f'noop rename was deleted: old={oldPath} new={newPath} local_id={localId}')
-            else:
-                logger.info(f'delete --> old={oldPath} new={newPath} local_id={localId} gd_id={gdId}')
-                metrics.counts.incr('execute_delete_file')
-                remove.gdDelete(oldPath, localId, gdId)
-                logger.info(f'delete <-- old={oldPath} new={newPath} local_id={localId} gd_id={gdId}')
-   
+                logger.info(f'rename <-- old={oldPath} new={newPath} local_id={localId}  gd_id={st.gd_id}')        
+        else:            
+            metrics.counts.incr('execute_rename_was_deleted')
+            logger.info(f'noop rename was deleted: old={oldPath} new={newPath} local_id={localId} gd_id={gdId}')
+            
     def executeSymlinkEvent(self, path: str, localId: str, gdId: str|None, seqNum, fromOperation) -> None:
         metrics.counts.incr(f'execute_{fromOperation}SymlinkEvent')
         logger.info(f'execute: path={path} local_id={localId} gd_id={gdId} seqNum={seqNum}')
@@ -289,16 +301,13 @@ class EventQueue:
                 logger.info(f'execute: path={path} is gitignored, not creating on Google Drive')
                 metadata.cache.changeToLocalOnly(path, localId, st)
             elif st.gd_id == None:
-                logger.info(f'symlink --> {path} local_id={localId} target_id={st.target_id}')
-                metrics.counts.incr('execute_symlink')
-                gdId = symlink.execute(path, localId, st.target_id, runAsync=False)
-                logger.info(f'symlink <-- {path} local_id={localId} targetId={st.target_id} gd_id={gdId}')
+                gdcreate.manager.enqueue(path, localId)
             else:
-                logger.info(f'symlink google drive id - noop: {path} local_id={localId} gd_id={gdId}')
+                logger.info(f'symlink google drive id - noop: {path} local_id={localId} gd_id={st.gd_id}')
         else:
             if gdId == None:
                 metrics.counts.incr('execute_symlink_was_deleted')
-                logger.info(f'noop symlink was deleted: {path} local_id={localId} gd_id={gdId}')
+                logger.info(f'noop symlink was deleted or renamed: {path} local_id={localId} gd_id={gdId}')
             else:
                 logger.info(f'remove --> {path} local_id={localId} gd_id={gdId}')
                 metrics.counts.incr('execute_delete_symlink')
@@ -326,6 +335,8 @@ class EventQueue:
         if st != None:
             if st.local_only:
                 logger.warning(f'execute: path={path} is local only, not truncating on Google Drive')
+            elif st.gd_id == None:
+                raise RetryException(f'executeTruncateEvent: path={path} local_id={localId} has no gd_id, retrying later')
             else:
                 logger.info(f'truncate --> {path} local_id={localId} gd_id={gdId} size={st.st_size}')
                 metrics.counts.incr('execute_truncate')

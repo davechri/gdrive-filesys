@@ -116,7 +116,7 @@ class Metadata:
             path (str): The file or directory path for which to retrieve metadata: 
         Returns:
             dict: The metadata attributes for the specified path.
-        """         
+        """
         if path == '/':
             if localId == None:
                 root = directories.store.getDirectoryByPath('/')

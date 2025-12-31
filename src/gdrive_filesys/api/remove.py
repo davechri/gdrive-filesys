@@ -31,7 +31,7 @@ def gdDelete(path: str, localId: str, gdId: str) -> None:
             metrics.counts.incr('remove_network')  
             # service = common.getApiClient(timeout)
             # service.files().delete(fileId=gdId).execute()
-            gddelete.manager.enqueue(path, localId=localId, method='delete', gdId=gdId)
+            gddelete.manager.enqueue(path, localId=localId, gdId=gdId)
             break
         except TimeoutError as e:
             logger.error(f'remove timeout {e}')

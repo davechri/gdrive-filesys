@@ -34,7 +34,7 @@ def execute(path: str) -> None:
        
 def gdDelete(path: str, localId: str, gdId: str):    
     metrics.counts.incr('rmdir_network')            
-    gddelete.manager.enqueue(path, localId=localId, method='delete', gdId=gdId)
+    gddelete.manager.enqueue(path, localId=localId, gdId=gdId)
          
         
     

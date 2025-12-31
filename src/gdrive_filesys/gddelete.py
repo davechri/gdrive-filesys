@@ -29,14 +29,14 @@ class GdDelete:
         logger.info('gddelete.stop')
         self.stopped = True
 
-    def enqueue(self, path: str, localId: str, method:str, gdId: str):        
-        self.queue.put((path, localId, method, gdId))
+    def enqueue(self, path: str, localId: str,gdId: str):        
+        self.queue.put((path, localId, gdId))
 
     def worker(self, number: int):        
         common.threadLocal.operation = 'gddelete_%d' % number
         common.threadLocal.path = None
         while not self.stopped:            
-            (path, localId, method, gdId) = self.queue.get()
+            (path, localId, gdId) = self.queue.get()
            
             with lock.get(path):
                 common.threadLocal.path = (path,)
@@ -44,7 +44,7 @@ class GdDelete:
                 metrics.counts.startExecution('gddelete_%d' % number)
                 try:
                     self.activeThreadCount += 1
-                    logger.info('--> workerThread %s %s local_id=%s', method, path, localId)
+                    logger.info('--> workerThread %s local_id=%s', path, localId)
 
                     for timeout in common.apiTimeoutRange():
                         try:                            
@@ -57,7 +57,7 @@ class GdDelete:
                             if common.isLastAttempt(timeout):
                                 raise
                     
-                    logger.info('<-- workerThread %s %s local_id=%s', method, path, localId)
+                    logger.info('<-- workerThread %s local_id=%s', path, localId)
                 
                 except Exception as e:
                     if isinstance(e, HttpError):

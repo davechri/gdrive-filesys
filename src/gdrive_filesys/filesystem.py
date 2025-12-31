@@ -5,12 +5,12 @@ import threading
 import tomllib
 import traceback
 
-from gdrive_filesys import common, directories, download, eventq, metrics, gddelete, oauth, refresh, heartbeat, rpc, error
+from gdrive_filesys import common, directories, gddownload, eventq, gdcreate, metrics, gddelete, oauth, refresh, heartbeat, rpc, error
 from gdrive_filesys.api import api
 
 from fuse import FUSE, FuseOSError, Operations
 
-from gdrive_filesys import upload
+from gdrive_filesys import gdupload
 from gdrive_filesys.cache import mem, metadata, refreshcache
 from gdrive_filesys.cache import db
 from gdrive_filesys.log import logger
@@ -97,7 +97,7 @@ class gdrive_filesys(Operations):
         if args.clearcache:
             localonly.deleteAll()
 
-        download.manager = download.Download()
+        gddownload.manager = gddownload.Download()
 
         if not oauth.creds.init():            
             exit(1)
@@ -156,9 +156,10 @@ class gdrive_filesys(Operations):
 
             heartbeat.monitor.start()
             refresh.thread.start()
-            download.manager.start() 
-            upload.manager.init()
-            upload.manager.start()
+            gddownload.manager.start() 
+            gdupload.manager.init()
+            gdupload.manager.start()
+            gdcreate.manager.start()
             gddelete.manager.start()
             eventq.queue.init()
             rpc.server.start()           
@@ -251,7 +252,7 @@ class gdrive_filesys(Operations):
             metrics.counts.startExecution('flush')
             logger.info('--> %s', path)
             metrics.counts.incr('flush')
-            rc = upload.manager.flush(path)
+            rc = gdupload.manager.flush(path)
             logger.info('<-- %s rc=%d', path, rc)
             return rc
         except Exception as e:
@@ -274,8 +275,9 @@ class gdrive_filesys(Operations):
         finally:
             metrics.counts.stop()
             heartbeat.monitor.stop()
-            download.manager.stop()
-            upload.manager.stop()
+            gddownload.manager.stop()
+            gdupload.manager.stop()
+            gdcreate.manager.stop()
             gddelete.manager.stop()
             rpc.server.stop()
             metrics.counts.endExecution('destroy')
@@ -320,7 +322,7 @@ class gdrive_filesys(Operations):
             metrics.counts.startExecution('statfs')
             logger.info('--> %s', path) 
             metrics.counts.incr('statfs')      
-            stv = download.manager.statvfs(path)        
+            stv = gddownload.manager.statvfs(path)        
             dic = dict((key, getattr(stv, key)) for key in ('f_bavail', 'f_bfree',
                 'f_blocks', 'f_bsize', 'f_favail', 'f_ffree', 'f_files', 'f_flag',
                 'f_frsize', 'f_namemax'))
@@ -376,7 +378,7 @@ class gdrive_filesys(Operations):
             logger.info('--> %s size=%d offset=%d', path, size, offset)
             metrics.counts.incr('read')
 
-            buf = download.manager.read(path, size, offset, readEntireFile=False)
+            buf = gddownload.manager.read(path, size, offset, readEntireFile=False)
 
             logger.info('<-- %s size=%d', path, len(buf))
             return buf
@@ -523,7 +525,7 @@ class gdrive_filesys(Operations):
             metrics.counts.startExecution('write')
             logger.info('--> %s size=%d offset=%d', path, len(buf), offset)
             metrics.counts.incr('write')   
-            upload.manager.write(path, buf, offset) 
+            gdupload.manager.write(path, buf, offset) 
             logger.info('<-- %s %d', path, len(buf))
             return len(buf)         
         except Exception as e:

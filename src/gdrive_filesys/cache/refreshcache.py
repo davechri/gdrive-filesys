@@ -10,7 +10,7 @@ from googleapiclient.errors import HttpError
 
 from gdrive_filesys import directories, eventq, gddelete, lock
 from gdrive_filesys.cache import mem, metadata
-from gdrive_filesys import common, download, metrics, attr, upload
+from gdrive_filesys import common, gddownload, metrics, attr, gdupload
 from gdrive_filesys.cache import data, db
 from gdrive_filesys.log import logger
 
@@ -288,7 +288,7 @@ URL=https://docs.google.com/document/d/{st.gd_id}/edit?usp=drivesdk
 
 def _refreshFiles(filesMap: dict[str, dict], dirNameToFileByGdId: dict[str, list[str]]):
 
-    downloadQueueSize = download.manager.downloadQueue.qsize()
+    downloadQueueSize = gddownload.manager.downloadQueue.qsize()
     metrics.counts.incr('refreshcache_refreshfiles_download_qsize', downloadQueueSize)   
     it = db.cache.getIterator()
     for key, value in it(prefix=bytes(mem.GETATTR, encoding='utf-8'), fill_cache=False):
@@ -359,7 +359,7 @@ def _downloadFile(path: str, stCache: attr.Stat):
     if stCache.st_size == 0:
         metrics.counts.incr('refreshcache_download_skip_empty_file')
         return
-    if upload.manager.isFlushPending(path, stCache.local_id):
+    if gdupload.manager.isFlushPending(path, stCache.local_id):
         metrics.counts.incr('refreshcache_download_skip_is_flush_pending')
         return
     count = data.cache.getUnreadBlockCount(path, stCache.local_id, stCache)
@@ -369,7 +369,7 @@ def _downloadFile(path: str, stCache: attr.Stat):
     
     metrics.counts.incr('refreshcache_download_enqueue')
 
-    download.manager.enqueueDownloadQueue(path, stCache)
+    gddownload.manager.enqueueDownloadQueue(path, stCache)
 
 def _getFileType(file: dict) -> str:
     appProperties = file.get('appProperties')

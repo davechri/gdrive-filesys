@@ -20,18 +20,8 @@ def execute(oldpath: str, newpath: str, runAsync: bool=True) -> None:
     
     stOld = metadata.cache.getattr(oldpath)
     if stOld == None:
-        raise FuseOSError(errno.ENOENT)
-   
-    if not runAsync:             
-        metrics.counts.incr('rename_network')            
-        gdRename(oldpath, newpath, stOld)        
-    elif not stOld.local_only:   
-        metrics.counts.incr('rename_enqueue_event')
-        eventq.queue.enqueueRenameEvent(oldpath, newpath, stOld.local_id, stOld.gd_id)
-    else:
-        logger.debug(f'API.rename: oldpath={oldpath} is local only, not renaming on Google Drive')
-        metrics.counts.incr('rename_local_only')
-
+        raise FuseOSError(errno.ENOENT)  
+    
     stNew = metadata.cache.getattr(newpath)
     if stNew is not None:
         if stNew.st_mode &  stat.S_IFDIR:
@@ -66,6 +56,16 @@ def execute(oldpath: str, newpath: str, runAsync: bool=True) -> None:
         data.cache.deleteAll(newpath, stNew.local_id)
         
     metadata.cache.renameMetadata(oldpath, newpath, stOld.local_id)
+
+    if not runAsync:             
+        metrics.counts.incr('rename_network')            
+        gdRename(oldpath, newpath, stOld)        
+    elif not stOld.local_only:   
+        metrics.counts.incr('rename_enqueue_event')
+        eventq.queue.enqueueRenameEvent(oldpath, newpath, stOld.local_id, stOld.gd_id)
+    else:
+        logger.debug(f'API.rename: oldpath={oldpath} is local only, not renaming on Google Drive')
+        metrics.counts.incr('rename_local_only')
 
 def gdRename(oldpath: str, newpath: str, st: attr.Stat) -> None:  
     
