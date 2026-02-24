@@ -23,15 +23,16 @@ def execute(path: str) -> None:
         if st.st_mode & stat.S_IFLNK == stat.S_IFLNK:
             localonly.deleteDirSymLink(path)        
            
-    data.cache.deleteAll(path, st.local_id)
-
+    data.cache.deleteByID(path, st.local_id)
+    metadata.cache.deleteMetadata(path, st.local_id, 'remove: delete metadata')
+    
 def gdDelete(path: str, localId: str, gdId: str) -> None:
     for timeout in common.apiTimeoutRange():
         try:  
             metrics.counts.incr('remove_network')  
             # service = common.getApiClient(timeout)
             # service.files().delete(fileId=gdId).execute()
-            gddelete.manager.enqueue(path, localId=localId, method='delete', gdId=gdId)
+            gddelete.manager.enqueue(path, localId=localId, gdId=gdId)
             break
         except TimeoutError as e:
             logger.error(f'remove timeout {e}')

@@ -7,7 +7,7 @@ import threading
 
 from gdrive_filesys import metrics, attr, common
 from gdrive_filesys import log
-from gdrive_filesys.api import api
+from gdrive_filesys.api import api, readchunk
 from googleapiclient.errors import HttpError
 
 from gdrive_filesys.cache import data, metadata
@@ -68,20 +68,23 @@ class Download:
             mimeType = st.mime_type
 
         try:
-            buf = data.cache.read(path, localId, offset, size, st)                   
+            def getDataCallback(size: int, offset: int) -> bytes:
+                return readchunk.execute(path, st.gd_id, mimeType, size, offset)
+            buf = data.cache.read(path, localId, offset, size, st.st_size,
+                                  getDataCallback if not st.local_only else None)                   
         except Exception as e:            
             self.errorsByLocalId[localId] = str(e)
             raise e
 
         # If the entire file is being read and all blocks are not cached, queue it for background reading
         if readEntireFile:
-            count = data.cache.getUnreadBlockCount(path, st.local_id, st)
+            count = data.cache.getUnreadBlockCount(path, st.local_id, st.st_size)
             if count > 0:
                 if queueEnd == READ_FRONT or count > 1:
                     self.downloadQueue.put((path, st.local_id, queueEnd))            
-                    metrics.counts.incr('download_read_enqueue_downloadqueue')                
+                    metrics.counts.incr('gddownload_read_enqueue_downloadqueue')                
             else:
-                metrics.counts.incr('download_read_all_blocks_cached')       
+                metrics.counts.incr('gddownload_read_all_blocks_cached')       
        
         return bytes(buf)
     
@@ -99,7 +102,7 @@ class Download:
         Stops the data processing by setting the stopped flag to True and logging the action.
         This method is typically called to gracefully halt ongoing operations.
         """
-        logger.info('download.stop')
+        logger.info('gddownload.stop')
         self.stopped = True
 
     def enqueueDownloadQueue(self, path: str, st: attr.Stat):
@@ -110,7 +113,7 @@ class Download:
         Args:
             path (str): The file path to be added to the queue.
         """
-        count = data.cache.getUnreadBlockCount(path, st.local_id, st)
+        count = data.cache.getUnreadBlockCount(path, st.local_id, st.st_size)
         if count > 0:
             self.downloadQueue.put((path, st.local_id, READ_BACK))
         if count > 1:
@@ -126,54 +129,54 @@ class Download:
         - If all blocks have been read, logs that all blocks are read for the file.
         The thread runs until the `self.stopped` flag is set.
         """
-        common.threadLocal.operation = 'download_%d' % number
+        common.threadLocal.operation = 'gddownload_%d' % number
         common.threadLocal.path = None
         while not self.stopped:            
             (path, localId, queueEnd) = self.downloadQueue.get()
            
             common.threadLocal.path = (path,)
-            metrics.counts.incr('download_dequeued')
-            metrics.counts.startExecution('download_%d' % number)
+            metrics.counts.incr('gddownload_dequeued')
+            metrics.counts.startExecution('gddownload_%d' % number)
             try:
                 self.activeThreadCount += 1
                 logger.info('--> downloadThread %s local_id=%s queueEnd=%s', path, localId, 'front' if queueEnd==READ_FRONT else 'back')
                 
-                st = metadata.cache.getattr(path, localId)
+                st = metadata.cache.getattr_by_id(localId)
                 if st == None:
-                    metrics.counts.incr('download_file_deleted')
+                    metrics.counts.incr('gddownload_file_deleted')
                     logger.warning('downloadThread: file was deleted %s local_id=%s', path, localId)
                     continue
                 
                 localId = st.local_id
                         
-                offset = data.cache.findNextUncachedBlockOffset(path, localId, st, reverse=queueEnd)
+                offset = data.cache.findNextUncachedBlockOffset(path, localId, st.st_size, reverse=queueEnd)
                 if offset is None:
-                    metrics.counts.incr('download_all_blocks_cached')
+                    metrics.counts.incr('gddownload_all_blocks_cached')
                     logger.info('<-- downloadThread %s local_id=%s all blocks cached', path, localId)
                     continue
 
                 size = common.BLOCK_SIZE                
                 self.read(path, size, offset, readEntireFile=True, queueEnd=queueEnd)
                 
-                metrics.counts.incr('download_block_read'+('_front' if queueEnd==READ_FRONT else '_back'))
-                metrics.counts.incr('download_bytes_read'+('_front' if queueEnd==READ_FRONT else '_back'), size)
+                metrics.counts.incr('gddownload_block_read'+('_front' if queueEnd==READ_FRONT else '_back'))
+                metrics.counts.incr('gddownload_bytes_read'+('_front' if queueEnd==READ_FRONT else '_back'), size)
 
                 logger.info('<-- downloadThread %s local_id=%s size=%s offset=%s', path, localId, size, offset)
                 
             except Exception as e:
                 if isinstance(e, HttpError):
-                    metrics.counts.incr('download_httperror')
+                    metrics.counts.incr('gddownload_httperror')
                     logger.error(f"<-- downloadThread: HttpError reading file {path} local_id={localId}: {e}")
                 elif isinstance(e, TimeoutError):
-                    metrics.counts.incr('download_timeouterror')
+                    metrics.counts.incr('gddownload_timeouterror')
                     logger.error(f'<-- downloadThread: TimeoutError reading file {path} local_id={localId}: {e}')
                 else:
                     self.exceptionCount += 1
-                    metrics.counts.incr('download_exception')
+                    metrics.counts.incr('gddownload_exception')
                     raisedBy = log.exceptionRaisedBy(e)
                     logger.exception(f"<-- downloadThread: exception reading file {path} local_id={localId}: {raisedBy}")
             finally:
                 self.activeThreadCount -= 1
-                metrics.counts.endExecution('download_%d' % number)
+                metrics.counts.endExecution('gddownload_%d' % number)
                 
 manager: Download = Download()

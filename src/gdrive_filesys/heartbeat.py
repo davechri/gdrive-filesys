@@ -46,8 +46,7 @@ class Heartbeat:
         """
         common.threadLocal.operation = 'heartbeat'
         common.threadLocal.path = None
-        metrics.counts.incr('heartbeatThread')
-        lastUpdateTime = 0
+        metrics.counts.incr('heartbeatThread')        
         failCount = 0
         try:
             while True:
@@ -73,13 +72,7 @@ class Heartbeat:
                             common.offline = False
                             logger.info("Google Drive API is reachable again, switching to online mode")                         
 
-                        # Update cached data at least every common.updateinterval seconds
-                        elapsed = time.time() - lastUpdateTime
-                        if elapsed > common.updateinterval:  
-                            metrics.counts.incr('heartbeat_refresh', int(elapsed))
-
-                            refresh.thread.trigger()                      
-                            lastUpdateTime =  time.time() + common.updateinterval
+                        refresh.thread.trigger()                        
                     else: 
                         logger.error(f"Error: {response.status_code}, {response.text}") 
                         if not common.offline:

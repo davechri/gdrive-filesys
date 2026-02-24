@@ -15,7 +15,7 @@ def execute(path: str, localId: str, filePath: str, st: attr.Stat) -> int:
         metrics.counts.incr('write_offline')
         raise FuseOSError(errno.ENETDOWN)
     
-    st = metadata.cache.getattr(path, localId)
+    st = metadata.cache.getattr_by_id(localId)
     if st is None:
         raise FuseOSError(errno.ENOENT)
 

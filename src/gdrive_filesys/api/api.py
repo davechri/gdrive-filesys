@@ -69,7 +69,5 @@ class API:
         truncate.execute(path, st.local_id, size, st)
     def readlink(self, path: bytes | str) -> str | None:  
         return readlink.execute(path) 
-    def writefile(self, path: str, localId: str, filePath: str, st: attr.Stat) -> int:        
-        return writefile.execute(path, localId, filePath, st)
-
+   
 interface = API()

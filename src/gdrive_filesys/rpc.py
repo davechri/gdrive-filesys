@@ -10,11 +10,11 @@ import subprocess
 from xmlrpc.server import SimpleXMLRPCServer
 from datetime import datetime
 
-from gdrive_filesys import common, download, eventq, filesystem, metrics, attr, directories, upload, refresh
+from gdrive_filesys import common, eventq, filesystem, gddownload, gdupload, metrics, attr, directories, refresh
 from gdrive_filesys.cache import db, mem
 from gdrive_filesys.log import logger
 from gdrive_filesys import log
-from gdrive_filesys import gddelete
+from gdrive_filesys import gddelete, gdcreate
 from gdrive_filesys.cache import metadata, data
 from gdrive_filesys.localonly import localonly
 
@@ -55,6 +55,7 @@ class RpcServer:
             class EventQueue:               
                 totalEvents: int = 0
                 failedCount: int = 0
+                retryCount: int = 0
                 eventTypes: dict[str,int] = dict()
             eventQueue = EventQueue()
 
@@ -79,7 +80,7 @@ class RpcServer:
                 if localId.find('file') != -1:
                     counts[key].files += 1
                     counts[key].fileBytes += size 
-                    counts[key].cacheBytes += data.cache.getCachedFileSize(None, localId, attr.Stat.newFromDict(d))
+                    counts[key].cacheBytes += data.cache.getCachedFileSize(None, localId)
                     if mode & stat.S_IFLNK == stat.S_IFLNK:
                         logger.error(f'File cannot be a symlink: localId={localId} path={attr.Stat.newFromDict(d).getPath()} mode={oct(mode)}')
                 elif (localId.find('dir') != -1):
@@ -98,10 +99,14 @@ class RpcServer:
                 eventQueue.eventTypes[eventKey] += 1                
                 valueObj = eventq.queue.parseValue(value)
                 eventQueue.failedCount += valueObj.failedCount
+                eventQueue.retryCount += valueObj.retryCount
 
             failedCount = ''
             if eventQueue.failedCount > 0:
                 failedCount = f' failed={eventQueue.failedCount}'
+            retryCount = ''
+            if eventQueue.retryCount > 0:
+                retryCount = f' retry={eventQueue.retryCount}'
             eventCounts = ''
             for eventType, count in eventQueue.eventTypes.items():
                 eventCounts += f'{eventType}={count} '
@@ -110,22 +115,29 @@ class RpcServer:
             state = 'OFFLINE' if common.offline else 'ONLINE'
             
             eventQueueStr = ''
-            if eventQueue.totalEvents > 0 or eventQueue.failedCount > 0:
-                eventQueueStr = f'\n\tEVENT_QUEUE:  total={eventQueue.totalEvents} {failedCount} {eventCounts}'
+            if eventQueue.totalEvents > 0 or eventQueue.failedCount > 0 or eventQueue.retryCount > 0:
+                eventQueueStr = f'\n\tEVENT_QUEUE:  total={eventQueue.totalEvents}{failedCount}{retryCount} {eventCounts}'
 
-            downloadStr = ''
+            gdDownloadStr = ''
             downloadExceptionsStr = ''
-            if download.manager.exceptionCount > 0:
-                downloadExceptionsStr = f'exceptions={download.manager.exceptionCount}'
-            if download.manager.activeThreadCount > 0 or download.manager.downloadQueue.qsize() > 0 or download.manager.exceptionCount > 0:
-                downloadStr = f'\n\tDOWNLOADS:    qsize={download.manager.downloadQueue.qsize()} active={download.manager.activeThreadCount} {downloadExceptionsStr}'
+            if gddownload.manager.exceptionCount > 0:
+                downloadExceptionsStr = f'exceptions={gddownload.manager.exceptionCount}'
+            if gddownload.manager.activeThreadCount > 0 or gddownload.manager.downloadQueue.qsize() > 0 or gddownload.manager.exceptionCount > 0:
+                gdDownloadStr = f'\n\tGD_DOWNLOAD:  qsize={gddownload.manager.downloadQueue.qsize()} active={gddownload.manager.activeThreadCount} {downloadExceptionsStr}'
 
-            uploadStr = ''
+            gdUploadStr = ''
             uploadExceptionsStr = ''
-            if upload.manager.exceptionCount > 0:
-                uploadExceptionsStr = f'exceptions={upload.manager.exceptionCount}'
-            if upload.manager.activeThreadCount > 0 or upload.manager.uploadQueue.qsize() > 0 or upload.manager.exceptionCount > 0:
-                uploadStr = f'\n\tUPLOADS:      qsize={upload.manager.uploadQueue.qsize()} active={upload.manager.activeThreadCount} {uploadExceptionsStr}'
+            if gdupload.manager.exceptionCount > 0:
+                uploadExceptionsStr = f'exceptions={gdupload.manager.exceptionCount}'
+            if gdupload.manager.activeThreadCount > 0 or gdupload.manager.uploadQueue.qsize() > 0 or gdupload.manager.exceptionCount > 0:
+                gdUploadStr = f'\n\tGD_UPLOAD:    qsize={gdupload.manager.uploadQueue.qsize()} active={gdupload.manager.activeThreadCount} {uploadExceptionsStr}'
+
+            dbcreatestr = ''
+            if gdcreate.manager.activeThreadCount > 0 or gdcreate.manager.queue.qsize() > 0 or gdcreate.manager.exceptionCount > 0 or len(gdcreate.manager.pendingCreates) > 0:
+                gdcreateExceptionsStr = ''
+                if gdcreate.manager.exceptionCount > 0:
+                    gdcreateExceptionsStr = f'exceptions={gdcreate.manager.exceptionCount}'
+                dbcreatestr = f'\n\tGD_CREATE:    qsize={gdcreate.manager.queue.qsize()} active={gdcreate.manager.activeThreadCount} pending={len(gdcreate.manager.pendingCreates)} {gdcreateExceptionsStr}'
 
             gddeleteStr = ''
             if gddelete.manager.activeThreadCount > 0 or gddelete.manager.queue.qsize() > 0 or gddelete.manager.exceptionCount > 0:
@@ -166,7 +178,7 @@ class RpcServer:
 
             googleDriveStr = f'\n\tGOOGLE_DRIVE: dirs={str(counts["remote"].dirs):5} files={str(counts["remote"].files):8} links={str(counts["remote"].links):3}  cached={humanize.naturalsize(counts["remote"].cacheBytes):8}  total={humanize.naturalsize(counts["remote"].fileBytes)}'
                                                 
-            output.append(f'{now} {state}:{filesystemStatsStr}{eventQueueStr}{gddeleteStr}{downloadStr}{uploadStr}{refreshRunningStr}{localDirsStr}{localOnlyStr}{googleDriveStr}')
+            output.append(f'{now} {state}:{filesystemStatsStr}{eventQueueStr}{dbcreatestr}{gddeleteStr}{gdDownloadStr}{gdUploadStr}{refreshRunningStr}{localDirsStr}{localOnlyStr}{googleDriveStr}')
 
         except Exception as e:
             raisedBy = log.exceptionRaisedBy(e)
@@ -175,7 +187,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_status: {raisedBy}')            
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
     
@@ -198,7 +210,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_eventqueue: {raisedBy}')            
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
 
@@ -219,7 +231,7 @@ class RpcServer:
                 mode = d.get('st_mode',0)
                 path = st.getPath()
                 
-                msg = '' if not localId in download.manager.errorsByLocalId else f'ERROR: {download.manager.errorsByLocalId[localId]}'
+                msg = '' if not localId in gddownload.manager.errorsByLocalId else f'ERROR: {gddownload.manager.errorsByLocalId[localId]}'
 
                 st = attr.Stat.newFromDict(d)
                 output.append(f'local_id={d.get("local_id", None)} path={st.getPath()} {d} {msg}')
@@ -254,7 +266,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_metadata: {raisedBy}')
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
 
@@ -288,7 +300,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_directories: {raisedBy}')
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
     
@@ -316,12 +328,12 @@ class RpcServer:
                 totalFiles += 1                    
                 size = d.get('st_size', 0)                    
                 if size > 0:                        
-                    unreadBlockCount = data.cache.getUnreadBlockCount(path, localId, st)
+                    unreadBlockCount = data.cache.getUnreadBlockCount(path, localId, st.st_size)
                     if unreadBlockCount > 0:                            
                         unreadFiles += 1
                         unreadBlocks += unreadBlockCount
 
-                        msg = f'UNREAD BLOCKS={unreadBlockCount}' if not localId in download.manager.errorsByLocalId else f'ERROR: {download.manager.errorsByLocalId[localId]}'
+                        msg = f'UNREAD BLOCKS={unreadBlockCount}' if not localId in gddownload.manager.errorsByLocalId else f'ERROR: {gddownload.manager.errorsByLocalId[localId]}'
                         output.append(f'local_id={localId} path={st.getPath()} {msg}')
 
                     totalBlocks += math.ceil(size/ common.BLOCK_SIZE)
@@ -334,7 +346,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_unread: {raisedBy}')
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
 
@@ -369,6 +381,7 @@ class RpcClient:
             for line in output:
                 line = line.replace('OFFLINE', '\033[1m\033[31mOFFLINE\033[00m')
                 line = line.replace('ONLINE', '\033[1m\033[32mONLINE\033[00m')
+                line = line.replace('retry', '\033[1m\033[33mretry\033[00m')
                 line = line.replace('failed', '\033[1m\033[31mfailed\033[00m')
                 line = line.replace('exceptions', '\033[1m\033[31mexceptions\033[00m')
                 print(line)

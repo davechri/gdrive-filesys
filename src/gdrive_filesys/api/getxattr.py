@@ -11,7 +11,7 @@ def execute(path: str) -> dict[str, any]:
         metrics.counts.incr('getxattr_offline')
         raise FuseOSError(errno.ENETDOWN)    
     
-    fileId = metadata.cache.getattr_by_id(path)
+    fileId = metadata.cache.getattr(path)
     if fileId is None:
         metrics.counts.incr('getxattr_enoent')
         raise FuseOSError(errno.ENOENT)

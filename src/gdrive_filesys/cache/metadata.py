@@ -12,8 +12,6 @@ import json
 from gdrive_filesys import metrics
 from gdrive_filesys import directories
 
-from fuse import FuseOSError
-
 NEGATIVE = 'negative'
 
 class Metadata:
@@ -116,7 +114,7 @@ class Metadata:
             path (str): The file or directory path for which to retrieve metadata: 
         Returns:
             dict: The metadata attributes for the specified path.
-        """         
+        """
         if path == '/':
             if localId == None:
                 root = directories.store.getDirectoryByPath('/')
@@ -283,7 +281,7 @@ class Metadata:
         name = os.path.basename(path)
         dirEntries = self.readdir(os.path.dirname(path)) 
         if dirEntries == None or not name in dirEntries:
-            None
+            return None
         
         localId = dirEntries.get(name)
         return self._readCache(path, localId, mem.READLINK)
@@ -300,7 +298,7 @@ class Metadata:
         name = os.path.basename(path)
         dirEntries = self.readdir(os.path.dirname(path)) 
         if dirEntries == None or not name in dirEntries:
-            None
+            return None
         
         localId = dirEntries.get(name)
         self._updateCache(path, localId, mem.READLINK, link)

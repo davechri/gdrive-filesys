@@ -4,7 +4,7 @@ import math
 import os
 import tempfile
 
-from gdrive_filesys import common, download, eventq, metrics, attr
+from gdrive_filesys import common, eventq, metrics, attr
 from gdrive_filesys.cache import data, metadata
 from gdrive_filesys.log import logger
 
@@ -56,7 +56,8 @@ def execute(path: str, localId: str, size: int, st: attr.Stat, runAsync: bool=Tr
                     'name': os.path.basename(path)
                 }
                 service = common.getApiClient(timeout)    
-                file = service.files().update(fileId=localId, body=fileMetadata, media_body=media, fields='id,name,size,createdTime,modifiedTime').execute()
+                file = service.files().update(fileId=st.gd_id, body=fileMetadata, media_body=media, fields='id,name,size,createdTime,modifiedTime').execute()
+
                 st.st_mtime = attr.Stat.unixTime(file.get('modifiedTime'))    
                 st.st_ctime = attr.Stat.unixTime(file.get('createdTime'))
                 metadata.cache.getattr_save(path, st.toDict())

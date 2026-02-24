@@ -3,6 +3,7 @@ from gitignore_parser import parse_gitignore_str
 
 from gdrive_filesys import attr, metrics, directories
 from gdrive_filesys.cache import data
+from gdrive_filesys.api import readchunk
 from gdrive_filesys.log import logger
 
 class GitIgnore:
@@ -23,7 +24,10 @@ class GitIgnore:
             return
 
         gitignorePath = os.path.join(repoPath, '.gitignore')
-        buf = data.cache.read(gitignorePath, st.local_id, 0, st.st_size, st)
+        def getDataCallback(size: int, offset: int) -> bytes:
+                return readchunk.execute(gitignorePath, st.gd_id, st.mime_type, size, offset)
+        buf = data.cache.read(gitignorePath, st.local_id, 0, st.st_size, st.st_size,
+                                  getDataCallback if not st.local_only else None)
         logger.info('gitignore.addRepo: loaded .gitignore for %s, size=%d', 
                     gitignorePath, len(buf))
         parser = parse_gitignore_str(str(buf, 'utf-8'), base_dir=repoPath)
