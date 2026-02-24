@@ -15,20 +15,15 @@ def execute(path:str, localId: str, mode: int, st: attr.Stat, runAsync: bool=Tru
     logger.debug(f'API.chmod: path={path} localId={localId} mode={oct(mode)} runAsync={runAsync}')
     if not runAsync and common.offline:
         raise Exception(f'API.chmod: cannot chmod while offline {path}')
-    
-    gdId = None
-    st = metadata.cache.getattr(path, localId) 
-    if st is not None:
-        gdId = st.gd_id
-        oldMode = st.st_mode
-        st.st_mode = mode | ((stat.S_IFDIR | stat.S_IFLNK | stat.S_IFREG) & st.st_mode)
-        if oldMode == st.st_mode:
-            logger.info(f'API.chmod: path={path} mode is unchanged {oct(mode)}')
-            return
-        metrics.counts.incr(f'chmod_{oct(oldMode)}_to_{oct(st.st_mode)}')
-        metadata.cache.getattr_save(path, st.toDict())
-    else:
-        raise FuseOSError(errno.ENOENT)
+        
+    gdId = st.gd_id
+    oldMode = st.st_mode
+    st.st_mode = mode | ((stat.S_IFDIR | stat.S_IFLNK | stat.S_IFREG) & st.st_mode)
+    if oldMode == st.st_mode and runAsync:
+        logger.info(f'API.chmod: path={path} mode is unchanged {oct(mode)}')
+        return
+    metrics.counts.incr(f'chmod_{oct(oldMode)}_to_{oct(st.st_mode)}')
+    metadata.cache.getattr_save(path, st.toDict())
     
     if st.local_only:
         logger.debug(f'API.chmod: path={path} is local only, not updating Google Drive')

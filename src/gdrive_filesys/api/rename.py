@@ -53,7 +53,8 @@ def execute(oldpath: str, newpath: str, runAsync: bool=True) -> None:
                 request = service.files().delete(fileId=stNew.local_id)
                 request.execute()
 
-        data.cache.deleteAll(newpath, stNew.local_id)
+        data.cache.deleteByID(newpath, stNew.local_id)
+        metadata.cache.deleteMetadata(newpath, stNew.local_id, 'rename: delete metadata')
         
     metadata.cache.renameMetadata(oldpath, newpath, stOld.local_id)
 

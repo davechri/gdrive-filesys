@@ -42,7 +42,7 @@ class Upload:
         if st is None:
             raise FuseOSError(errno.ENOENT)
         metrics.counts.incr(f'gdupload_put_block')
-        data.cache.putData(path, st.local_id, offset, buf)
+        data.cache.write(path, st.local_id, offset, buf)
         
         db.cache.put(f'{UPLOAD}:{st.local_id}', b'1', UPLOAD)
         
@@ -70,7 +70,7 @@ class Upload:
             metrics.counts.incr(f'gdupload_flush_nopending')
             return 0
 
-        if not data.cache.isEntireFileCached(path, st.local_id, st):       
+        if not data.cache.isEntireFileCached(path, st.local_id, st.st_size):       
             metrics.counts.incr('gdupload_flush_file_is not_cached')
             return 0
         
@@ -128,7 +128,12 @@ class Upload:
                     continue
 
                 localPath = os.path.join(self.uploadDir, f'{localId}-{time()}')
-                fileSize = data.cache.copyDataToFile(path, localId, st, localPath)
+                fileSize = data.cache.copyDataToFile(path, localId, st.st_size, localPath)
+                if fileSize > st.st_size:
+                    metrics.counts.incr(f'data.cache_copy_updated_size_to_{fileSize}')
+                    logger.warning(f'data.cache.copyDataToFile: {path} Cached file size {fileSize} is larger than attr file size {st.st_size}, updated metadata')
+                    st.st_size = fileSize
+                    metadata.cache.getattr_increase_size(path, fileSize)     
 
                 metrics.counts.incr(f'gdupload_flush_wrote_local_file_bytes', fileSize)
 

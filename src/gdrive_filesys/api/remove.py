@@ -23,8 +23,9 @@ def execute(path: str) -> None:
         if st.st_mode & stat.S_IFLNK == stat.S_IFLNK:
             localonly.deleteDirSymLink(path)        
            
-    data.cache.deleteAll(path, st.local_id)
-
+    data.cache.deleteByID(path, st.local_id)
+    metadata.cache.deleteMetadata(path, st.local_id, 'remove: delete metadata')
+    
 def gdDelete(path: str, localId: str, gdId: str) -> None:
     for timeout in common.apiTimeoutRange():
         try:  

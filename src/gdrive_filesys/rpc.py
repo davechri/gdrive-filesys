@@ -80,7 +80,7 @@ class RpcServer:
                 if localId.find('file') != -1:
                     counts[key].files += 1
                     counts[key].fileBytes += size 
-                    counts[key].cacheBytes += data.cache.getCachedFileSize(None, localId, attr.Stat.newFromDict(d))
+                    counts[key].cacheBytes += data.cache.getCachedFileSize(None, localId)
                     if mode & stat.S_IFLNK == stat.S_IFLNK:
                         logger.error(f'File cannot be a symlink: localId={localId} path={attr.Stat.newFromDict(d).getPath()} mode={oct(mode)}')
                 elif (localId.find('dir') != -1):
@@ -123,21 +123,21 @@ class RpcServer:
             if gddownload.manager.exceptionCount > 0:
                 downloadExceptionsStr = f'exceptions={gddownload.manager.exceptionCount}'
             if gddownload.manager.activeThreadCount > 0 or gddownload.manager.downloadQueue.qsize() > 0 or gddownload.manager.exceptionCount > 0:
-                gdDownloadStr = f'\n\tGB_DOWNLOAD:  qsize={gddownload.manager.downloadQueue.qsize()} active={gddownload.manager.activeThreadCount} {downloadExceptionsStr}'
+                gdDownloadStr = f'\n\tGD_DOWNLOAD:  qsize={gddownload.manager.downloadQueue.qsize()} active={gddownload.manager.activeThreadCount} {downloadExceptionsStr}'
 
             gdUploadStr = ''
             uploadExceptionsStr = ''
             if gdupload.manager.exceptionCount > 0:
                 uploadExceptionsStr = f'exceptions={gdupload.manager.exceptionCount}'
             if gdupload.manager.activeThreadCount > 0 or gdupload.manager.uploadQueue.qsize() > 0 or gdupload.manager.exceptionCount > 0:
-                gdUploadStr = f'\n\tGB_UPLOAD:    qsize={gdupload.manager.uploadQueue.qsize()} active={gdupload.manager.activeThreadCount} {uploadExceptionsStr}'
+                gdUploadStr = f'\n\tGD_UPLOAD:    qsize={gdupload.manager.uploadQueue.qsize()} active={gdupload.manager.activeThreadCount} {uploadExceptionsStr}'
 
             dbcreatestr = ''
             if gdcreate.manager.activeThreadCount > 0 or gdcreate.manager.queue.qsize() > 0 or gdcreate.manager.exceptionCount > 0 or len(gdcreate.manager.pendingCreates) > 0:
                 gdcreateExceptionsStr = ''
                 if gdcreate.manager.exceptionCount > 0:
                     gdcreateExceptionsStr = f'exceptions={gdcreate.manager.exceptionCount}'
-                dbcreatestr = f'\n\tGB_CREATE:    qsize={gdcreate.manager.queue.qsize()} active={gdcreate.manager.activeThreadCount} pending={len(gdcreate.manager.pendingCreates)} {gdcreateExceptionsStr}'
+                dbcreatestr = f'\n\tGD_CREATE:    qsize={gdcreate.manager.queue.qsize()} active={gdcreate.manager.activeThreadCount} pending={len(gdcreate.manager.pendingCreates)} {gdcreateExceptionsStr}'
 
             gddeleteStr = ''
             if gddelete.manager.activeThreadCount > 0 or gddelete.manager.queue.qsize() > 0 or gddelete.manager.exceptionCount > 0:
@@ -187,7 +187,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_status: {raisedBy}')            
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
     
@@ -210,7 +210,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_eventqueue: {raisedBy}')            
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
 
@@ -266,7 +266,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_metadata: {raisedBy}')
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
 
@@ -300,7 +300,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_directories: {raisedBy}')
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
     
@@ -328,7 +328,7 @@ class RpcServer:
                 totalFiles += 1                    
                 size = d.get('st_size', 0)                    
                 if size > 0:                        
-                    unreadBlockCount = data.cache.getUnreadBlockCount(path, localId, st)
+                    unreadBlockCount = data.cache.getUnreadBlockCount(path, localId, st.st_size)
                     if unreadBlockCount > 0:                            
                         unreadFiles += 1
                         unreadBlocks += unreadBlockCount
@@ -346,7 +346,7 @@ class RpcServer:
             raisedBy = log.exceptionRaisedBy(e)
             logger.exception(f'<-- rpc_unread: {raisedBy}')
             output.append(str(e))
-            output.append('See error details in ~/gdrive_filesys/error.log')
+            output.append('See error details in ~/.gdrive_filesys/error.log')
 
         return output
 

@@ -26,7 +26,6 @@ pathfilter: str|None = None
 updateinterval = UPDATE_INTERVAL
 mountpoint = None
 offline = False
-offlineode = False
 xattrEnabled = False
 
 # Google Documents: application/vnd.google-apps.document

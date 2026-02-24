@@ -7,7 +7,7 @@ import threading
 
 from gdrive_filesys import metrics, attr, common
 from gdrive_filesys import log
-from gdrive_filesys.api import api
+from gdrive_filesys.api import api, readchunk
 from googleapiclient.errors import HttpError
 
 from gdrive_filesys.cache import data, metadata
@@ -68,14 +68,17 @@ class Download:
             mimeType = st.mime_type
 
         try:
-            buf = data.cache.read(path, localId, offset, size, st)                   
+            def getDataCallback(size: int, offset: int) -> bytes:
+                return readchunk.execute(path, st.gd_id, mimeType, size, offset)
+            buf = data.cache.read(path, localId, offset, size, st.st_size,
+                                  getDataCallback if not st.local_only else None)                   
         except Exception as e:            
             self.errorsByLocalId[localId] = str(e)
             raise e
 
         # If the entire file is being read and all blocks are not cached, queue it for background reading
         if readEntireFile:
-            count = data.cache.getUnreadBlockCount(path, st.local_id, st)
+            count = data.cache.getUnreadBlockCount(path, st.local_id, st.st_size)
             if count > 0:
                 if queueEnd == READ_FRONT or count > 1:
                     self.downloadQueue.put((path, st.local_id, queueEnd))            
@@ -110,7 +113,7 @@ class Download:
         Args:
             path (str): The file path to be added to the queue.
         """
-        count = data.cache.getUnreadBlockCount(path, st.local_id, st)
+        count = data.cache.getUnreadBlockCount(path, st.local_id, st.st_size)
         if count > 0:
             self.downloadQueue.put((path, st.local_id, READ_BACK))
         if count > 1:
@@ -146,7 +149,7 @@ class Download:
                 
                 localId = st.local_id
                         
-                offset = data.cache.findNextUncachedBlockOffset(path, localId, st, reverse=queueEnd)
+                offset = data.cache.findNextUncachedBlockOffset(path, localId, st.st_size, reverse=queueEnd)
                 if offset is None:
                     metrics.counts.incr('gddownload_all_blocks_cached')
                     logger.info('<-- downloadThread %s local_id=%s all blocks cached', path, localId)

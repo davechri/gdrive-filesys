@@ -263,7 +263,8 @@ def _refreshDirEntry(gdId: str, nameToFile: dict[str,any]):
 
     for st in deleteAttrList:
         path = os.path.join(directory.path, st.file_name)
-        data.cache.deleteAll(path, st.local_id)
+        data.cache.deleteByID(path, st.local_id)
+        metadata.cache.deleteMetadata(path, st.local_id, 'refreshcache._refreshDirEntry: delete stale metadata')
             
 def _convertToDesktopFile(path: str, st: attr.Stat):
     if not st.file_name.endswith('.desktop'):
@@ -284,7 +285,7 @@ URL=https://docs.google.com/document/d/{st.gd_id}/edit?usp=drivesdk
         metadata.cache.getattr_save(path, st.toDict())
         parentPath = os.path.dirname(path)
         metadata.cache.readdir_add_entry(parentPath, st.file_name, st.local_id)        
-        data.cache.putData(path, st.local_id, 0, bytes(desktopEntry, 'utf-8'))
+        data.cache.write(path, st.local_id, 0, bytes(desktopEntry, 'utf-8'))
 
 def _refreshFiles(filesMap: dict[str, dict], dirNameToFileByGdId: dict[str, list[str]]):
 
@@ -327,7 +328,8 @@ def _refreshFiles(filesMap: dict[str, dict], dirNameToFileByGdId: dict[str, list
             continue
         if stCache.gd_id not in filesMap:
             metrics.counts.incr('refreshcache_refreshFiles_gd_file_deleted')
-            data.cache.deleteAll(path, stCache.local_id) 
+            data.cache.deleteByID(path, stCache.local_id) 
+            metadata.cache.deleteMetadata(path, stCache.local_id, 'refreshcache._refreshFiles: delete stale metadata')
             continue           
 
         file = filesMap[stCache.gd_id]       
@@ -362,7 +364,7 @@ def _downloadFile(path: str, stCache: attr.Stat):
     if gdupload.manager.isFlushPending(path, stCache.local_id):
         metrics.counts.incr('refreshcache_download_skip_is_flush_pending')
         return
-    count = data.cache.getUnreadBlockCount(path, stCache.local_id, stCache)
+    count = data.cache.getUnreadBlockCount(path, stCache.local_id, stCache.st_size)
     if count == 0:
         metrics.counts.incr('refreshcache_download_skip_no_unread_blocks')
         return
